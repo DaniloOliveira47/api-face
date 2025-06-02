@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Sistema de Reconhecimento Facial</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        form div {
+            margin-bottom: 10px;
+        }
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #preview, #capturePreview {
+            max-width: 300px;
+            margin-top: 10px;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .person-card {
+            display: inline-block;
+            margin: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .match {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+        }
+        #videoElement {
+            width: 320px;
+            height: 240px;
+            background-color: #666;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sistema de Reconhecimento Facial</h1>
+    
+    <section id="cadastroSection">
+        <h2>Cadastrar Nova Pessoa</h2>
+        <form id="cadastroForm">
+            <div>
+                <label for="nome">Nome:</label>
+                <input type="text" id="nome" required>
+            </div>
+            <div>
+                <label for="setor">Setor:</label>
+                <input type="text" id="setor" required>
+            </div>
+            <div>
+                <label for="foto">Foto do Rosto:</label>
+                <input type="file" id="foto" accept="image/*" required>
+                <img id="preview" class="hidden">
+            </div>
+            <button type="submit">Cadastrar</button>
+        </form>
+        <div id="cadastroResult" class="result"></div>
+    </section>
+
+    <section id="reconhecimentoSection">
+        <h2>Reconhecimento Facial</h2>
+        <div>
+            <button id="startCamera">Iniciar Câmera</button>
+            <button id="captureBtn" disabled>Capturar Foto</button>
+            <button id="stopCamera" class="hidden">Parar Câmera</button>
+        </div>
+        <div>
+            <video id="videoElement" class="hidden"></video>
+            <canvas id="canvas" class="hidden"></canvas>
+            <img id="capturePreview" class="hidden">
+        </div>
+        <form id="reconhecerForm">
+            <div>
+                <label for="fotoReconhecer">Ou envie uma foto:</label>
+                <input type="file" id="fotoReconhecer" accept="image/*">
+            </div>
+            <button type="submit">Reconhecer</button>
+        </form>
+        <div id="reconhecimentoResult" class="result"></div>
+    </section>
+
+    <section id="listaSection">
+        <h2>Pessoas Cadastradas</h2>
+        <button id="listarBtn">Atualizar Lista</button>
+        <div id="listaPessoas"></div>
+    </section>
+
+    <script>
+        // Elementos do DOM
+        const videoElement = document.getElementById('videoElement');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('captureBtn');
+        const startCameraBtn = document.getElementById('startCamera');
+        const stopCameraBtn = document.getElementById('stopCamera');
+        const capturePreview = document.getElementById('capturePreview');
+        const fotoInput = document.getElementById('foto');
+        const preview = document.getElementById('preview');
+        let stream = null;
+        
+        // Mostrar preview da imagem selecionada para cadastro
+        fotoInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    preview.src = event.target.result;
+                    preview.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Iniciar câmera para reconhecimento
+        startCameraBtn.addEventListener('click', async function() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 }, 
+                        height: { ideal: 480 },
+                        facingMode: 'user' 
+                    } 
+                });
+                videoElement.srcObject = stream;
+                videoElement.classList.remove('hidden');
+                captureBtn.disabled = false;
+                startCameraBtn.classList.add('hidden');
+                stopCameraBtn.classList.remove('hidden');
+            } catch (err) {
+                showResult('reconhecimentoResult', `Erro ao acessar a câmera: ${err.message}`, 'error');
+            }
+        });
+        
+        // Parar câmera
+        stopCameraBtn.addEventListener('click', function() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+                videoElement.classList.add('hidden');
+                captureBtn.disabled = true;
+                startCameraBtn.classList.remove('hidden');
+                stopCameraBtn.classList.add('hidden');
+                capturePreview.classList.add('hidden');
+            }
+        });
+        
+        // Capturar foto da câmera
+        captureBtn.addEventListener('click', function() {
+            const context = canvas.getContext('2d');
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+            context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            
+            capturePreview.src = canvas.toDataURL('image/png');
+            capturePreview.classList.remove('hidden');
+            
+            // Limpar seleção de arquivo se houver
+            document.getElementById('fotoReconhecer').value = '';
+        });
+        
+        // Cadastrar pessoa
+        document.getElementById('cadastroForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const nome = document.getElementById('nome').value;
+            const setor = document.getElementById('setor').value;
+            const foto = document.getElementById('foto').files[0];
+            
+            if (!nome || !setor || !foto) {
+                showResult('cadastroResult', 'Todos os campos são obrigatórios', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('nome', nome);
+            formData.append('setor', setor);
+            formData.append('foto', foto);
+            
+            try {
+                const response = await fetch('http://localhost:5000/cadastrar', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showResult('cadastroResult', `
+                        <p>Cadastro realizado com sucesso!</p>
+                        <p><strong>Nome:</strong> ${result.pessoa.nome}</p>
+                        <p><strong>Setor:</strong> ${result.pessoa.setor}</p>
+                        <p><strong>ID:</strong> ${result.pessoa.id}</p>
+                        <img src="http://localhost:5000/faces/${result.pessoa.foto}" width="150">
+                    `, 'success');
+                    
+                    // Limpar formulário
+                    document.getElementById('cadastroForm').reset();
+                    preview.classList.add('hidden');
+                } else {
+                    showResult('cadastroResult', `Erro: ${result.erro || 'Erro desconhecido'}`, 'error');
+                }
+            } catch (error) {
+                showResult('cadastroResult', `Erro na conexão: ${error.message}`, 'error');
+            }
+        });
+        
+        // Reconhecer pessoa
+        document.getElementById('reconhecerForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            let fotoFile;
+            const fotoInput = document.getElementById('fotoReconhecer');
+            
+            // Verifica se foi capturado pela câmera ou enviado por arquivo
+            if (!capturePreview.classList.contains('hidden')) {
+                // Converter canvas para blob
+                fotoFile = await new Promise(resolve => {
+                    canvas.toBlob(blob => {
+                        resolve(new File([blob], 'capture.png', { type: 'image/png' }));
+                    }, 'image/png');
+                });
+            } else if (fotoInput.files.length > 0) {
+                fotoFile = fotoInput.files[0];
+            } else {
+                showResult('reconhecimentoResult', 'Por favor, capture ou envie uma foto', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('foto', fotoFile);
+            
+            try {
+                showResult('reconhecimentoResult', 'Processando...', 'success');
+                
+                const response = await fetch('http://localhost:5000/reconhecer', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    if (result.sucesso) {
+                        const match = result.melhor_match;
+                        let html = `
+                            <h3>Correspondência encontrada!</h3>
+                            <div class="match">
+                                <p><strong>Nome:</strong> ${match.pessoa.nome}</p>
+                                <p><strong>Setor:</strong> ${match.pessoa.setor}</p>
+                                <p><strong>Distância:</strong> ${match.distancia.toFixed(2)}</p>
+                                <p><strong>Método:</strong> ${match.metodo}</p>
+                                <img src="http://localhost:5000/faces/${match.pessoa.foto}" width="150">
+                            </div>
+                        `;
+                        showResult('reconhecimentoResult', html, 'success');
+                    } else {
+                        showResult('reconhecimentoResult', 'Nenhuma correspondência encontrada', 'error');
+                    }
+                } else {
+                    showResult('reconhecimentoResult', `Erro: ${result.erro || 'Erro desconhecido'}`, 'error');
+                }
+            } catch (error) {
+                showResult('reconhecimentoResult', `Erro na conexão: ${error.message}`, 'error');
+            }
+        });
+        
+        // Listar pessoas cadastradas
+        document.getElementById('listarBtn').addEventListener('click', async function() {
+            try {
+                const response = await fetch('http://localhost:5000/pessoas');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let html = '<div>';
+                    if (data.pessoas && data.pessoas.length > 0) {
+                        data.pessoas.forEach(pessoa => {
+                            html += `
+                                <div class="person-card">
+                                    <h3>${pessoa.nome}</h3>
+                                    <p>${pessoa.setor}</p>
+                                    <img src="http://localhost:5000/faces/${pessoa.foto}" width="150">
+                                    <p><small>ID: ${pessoa.id}</small></p>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        html = '<p>Nenhuma pessoa cadastrada ainda.</p>';
+                    }
+                    html += '</div>';
+                    
+                    document.getElementById('listaPessoas').innerHTML = html;
+                } else {
+                    showResult('listaPessoas', `Erro: ${data.erro || 'Erro desconhecido'}`, 'error');
+                }
+            } catch (error) {
+                showResult('listaPessoas', `Erro na conexão: ${error.message}`, 'error');
+            }
+        });
+        
+        // Função auxiliar para mostrar resultados
+        function showResult(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = message;
+            element.className = `result ${type}`;
+        }
+        
+        // Carregar lista inicial de pessoas
+        document.getElementById('listarBtn').click();
+    </script>
+</body>
+</html>
